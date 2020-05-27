@@ -18,4 +18,4 @@ RUN cd /opt && \
 RUN mkdir /opt/nagios-api
 COPY . /opt/nagios-api
 
-CMD [ "start.sh" ]
+CMD [ "/opt/nagios-api/start.sh" ]
