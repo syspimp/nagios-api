@@ -1,6 +1,8 @@
-FROM ubuntu:16.04
-MAINTAINER Rogier Slag <rogier@inventid.nl>
+#FROM ubuntu:16.04
+FROM jasonrivers/nagios:latest
+MAINTAINER David Taylor <dataylor@redhat.com>
 
+EXPOSE 80
 EXPOSE 8080
 # The following files can be mapped into the container for usages towards Nagios
 # However setting these as a volume causes Docker to create directories for them
@@ -16,5 +18,4 @@ RUN cd /opt && \
 RUN mkdir /opt/nagios-api
 COPY . /opt/nagios-api
 
-CMD ["/opt/env/bin/python", "/opt/nagios-api/nagios-api", "-p", "8080", "-s", "/opt/status.dat", "-c", "/opt/nagios.cmd", "-l", "/opt/nagios.log", "-q"]
-
+CMD [ "start.sh" ]
