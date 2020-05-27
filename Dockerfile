@@ -9,7 +9,7 @@ EXPOSE 8080
 # VOLUME ["/opt/status.dat", "/opt/nagios.cmd", "/opt/nagios.log"]
 
 RUN apt-get update && \
-    apt-get install python-virtualenv libffi-dev python-dev python-pip python-setuptools openssl libssl-dev -y
+    apt-get install python-virtualenv libffi-dev python-dev python-pip python-setuptools openssl libssl-dev -y vim
 RUN cd /opt && \
     virtualenv env && \
     /opt/env/bin/pip install diesel && \
@@ -20,5 +20,7 @@ COPY . /opt/nagios-api
 
 RUN echo "deb http://ppa.launchpad.net/vshn/icinga/ubuntu xenial main" >> /etc/apt/sources.list && \
     apt-get update && \
-		apt-get install -y --allow-unauthenticated nagios-plugins-openshift
+		apt-get install -y --allow-unauthenticated nagios-plugins-openshift && \
+    mv /opt/nagios-api/oc /usr/bin/
+
 CMD [ "/opt/nagios-api/start.sh" ]
