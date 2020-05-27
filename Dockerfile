@@ -18,4 +18,7 @@ RUN cd /opt && \
 RUN mkdir /opt/nagios-api
 COPY . /opt/nagios-api
 
+RUN echo "deb http://ppa.launchpad.net/vshn/icinga/ubuntu xenial main" >> /etc/apt/sources.list && \
+    apt-get update && \
+		apt-get install -y nagios-plugins-openshift
 CMD [ "/opt/nagios-api/start.sh" ]
