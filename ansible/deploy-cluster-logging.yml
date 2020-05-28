@@ -1,0 +1,16 @@
+---
+# https://docs.openshift.com/container-platform/4.4/logging/cluster-logging-deploying.html
+- name: Deploy Openshift cluster logging
+  hosts: all
+  connection: local
+  tasks:
+    - name: Create objects, groups, subscriptions, and instance for cluster logging
+      shell: "oc --kubeconfig=/opt/nagios-api/kubeconfig create -f {{ item }}"
+      with_items:
+        - elasticsearch-operator-namespace.yml
+        - clusterlogging-operator-namespace.yml
+        - elasticsearch-operator-group.yml
+        - clusterlogging-operator-group.yml
+        - clusterlogging-subscription.yml
+        - clusterlogging-instance.yml
+      delegate_to: localhost
