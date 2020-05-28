@@ -9,12 +9,15 @@ EXPOSE 8080
 # VOLUME ["/opt/status.dat", "/opt/nagios.cmd", "/opt/nagios.log"]
 
 RUN apt-get update && \
-    apt-get install python-virtualenv libffi-dev python-dev python-pip python-setuptools openssl libssl-dev -y vim ansible
+    apt-get install python-virtualenv libffi-dev python-dev python-pip python-setuptools openssl libssl-dev -y vim ansible cron
 RUN cd /opt && \
     virtualenv env && \
     /opt/env/bin/pip install diesel && \
     /opt/env/bin/pip install requests
 
+COPY reconfig-nagios.cron /etc/cron.d/reconfig-nagios.cron
+RUN chmod 0644 /etc/cron.d/reconfig-nagios.cron && \
+    crontab /etc/cron.d/reconfig-nagios.cron
 RUN mkdir /opt/nagios-api
 COPY . /opt/nagios-api
 
@@ -30,6 +33,11 @@ RUN mv -f /opt/nagios-api/oc /usr/bin/ && \
 		cp -f /opt/nagios-api/nagios.cfg /opt/nagios/etc/nagios.cfg && \
 		chown -R nagios.nagios /opt/nagios/etc && \
 		chown -R nagios.nagios /opt/nagios/var
+
+# Give execution rights on the cron job
+
+# Apply cron job
+
 RUN cd /tmp                                                          && \
     git clone https://git.code.sf.net/p/nagiosgraph/git nagiosgraph  && \
     cd nagiosgraph                                                   && \
