@@ -1,0 +1,112 @@
+---
+- name: configure nagios
+  hosts: all
+  connection: local
+  gather_facts: no
+  vars:
+    nagios:
+      api_url: http://localhost:8080
+      openshift_cluster:
+        - name: taylorlabs-ocp
+          services:
+            - cmd: check_openshift_pod_count_all_namespaces
+              desc: Pod Count for all Namespaces
+            - cmd: check_openshift_pod_count_nagios_namespace
+              desc: Pod Count for the Nagios Namespace
+            - cmd: check_openshift_pod_count_ansible_tower
+              desc: Pod Count using app equals ansible-tower selector
+            - cmd: check_openshift_pod_status_count
+              desc: Pods and Status Count
+            - cmd: check_openshift_elasticsearch_stats
+              desc: Elastic Search Stats
+            - cmd: check_openshift_pvc_phase
+              desc: PV Claim Phases
+          masters:
+            - hosts: {}
+              hostgroup: openshift-masters
+              services:
+              - cmd: check_openshift_node_resources
+                desc: Master Node Resources
+          workers:
+            - hosts: {}
+              hostgroup: openshift-workers
+              services:
+              - cmd: check_openshift_node_resources
+                desc: Worker Node Resources
+  tasks:
+    - name: grab the output of oc get nodes
+      shell: oc --config /opt/nagios-api/kubeconfig get nodes
+      register: getnodes
+      delegate_to: localhost
+
+    - name: grab the kubernetes endpoint
+      shell: echo $KUBERNETES_SERVICE_HOST
+      register: kubetarget
+      delegate_to: localhost
+
+    - name: set worker facts
+      vars:
+        workers: []
+      set_fact:
+        workers: "{{ workers }} + ['{{ item.split(' ')[0] }}']"
+      when: "'worker' in item"
+      with_items: "{{ getnodes.stdout_lines }}"
+
+    - name: set master facts
+      vars:
+        masters: []
+      set_fact:
+        masters: "{{ masters }} + ['{{ item.split(' ')[0] }}']"
+      when: "'master' in item"
+      with_items: "{{ getnodes.stdout_lines }}"
+
+    - name: set kubetarget facts
+      set_fact:
+        kube_endpoint: "{{ kubetarget.stdout | trim }}"
+
+    - name: dump vars
+      debug: var=masters
+
+    - name: dump vars
+      debug: var=workers
+
+    - name: dump vars
+      debug: var=kube_endpoint
+
+    - name: set nagios openshift template
+      template:
+        src: openshift.cfg.j2
+        dest: /opt/nagios/etc/objects/openshift.cfg
+        owner: nagios
+        group: nagios
+        mode: 0644 
+      notify:
+        - restart nagios
+
+    - name: set nagios openshift commands template
+      template:
+        src: openshift-commands.cfg.j2
+        dest: /opt/nagios/etc/objects/openshift-commands.cfg
+        owner: nagios
+        group: nagios
+        mode: 0644 
+      notify:
+        - restart nagios
+
+    - name: set nagios.cfg template
+      template:
+        src: nagios.cfg.j2
+        dest: /opt/nagios/etc/nagios.cfg
+        owner: nagios
+        group: nagios
+        mode: 0644 
+      notify:
+        - restart nagios
+
+  handlers:
+    - name: restart nagios
+      uri:
+        url: "{{ nagios['api_url'] }}/restart_nagios"
+        validate_certs: no
+        method: GET
+        status_code: [200]

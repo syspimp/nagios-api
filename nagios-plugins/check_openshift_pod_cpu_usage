@@ -1,0 +1,222 @@
+#!/usr/bin/python3
+
+import argparse
+import operator
+import collections
+import time
+import nagiosplugin
+import logging
+
+import vshn_npo.hawkular_client
+from vshn_npo import nagiosutils
+from vshn_npo import hawkular_utils
+from vshn_npo import utils
+
+from vshn_npo.hawkular_client import idquote as idquote
+
+
+# Anything shorter is pointless due to jitter in the path the data takes from
+# the kernel to Hawkular
+_MIN_INTERVAL = 60
+
+
+class ContainerMetrics(collections.namedtuple("ContainerMetrics", [
+  "pod_name",
+  "container_name",
+  "uptime_metric_id",
+  "cpu_usage_metric_id",
+  "cpu_limit_metric_id",
+  ])):
+  pass
+
+
+def select_metrics(client, label_filter):
+  # TODO: Calculate usage per pod instead of per container
+  #
+  # <https://github.com/openshift/origin-metrics/blob/master/docs/
+  # hawkular_metrics.adoc#consolidating-metric-data-across-multiple-containers>
+  #
+  tags = {
+      "descriptor_name": "cpu/usage",
+      "type": "pod_container",
+      }
+
+  for i in hawkular_utils.select_metrics(client, label_filter, tags):
+    cpu_usage_metric_id = i["id"]
+
+    try:
+      pod_name = i["tags"]["pod_name"]
+    except KeyError:
+      pod_name = "unknown-{}".format(cpu_usage_metric_id)
+
+    # Per-pod metrics have no container name
+    container_name = i["tags"].get("container_name", "")
+
+    # Assume ID ends with given string; a better implementation, though
+    # resulting in more API calls, would use a filter using "pod_id" and
+    # "descriptor_name" to retrieve the metric ID.
+    assert cpu_usage_metric_id.endswith("/cpu/usage")
+
+    uptime_metric_id = "{}uptime".format(cpu_usage_metric_id[:-9])
+    cpu_limit_metric_id = "{}cpu/limit".format(cpu_usage_metric_id[:-9])
+
+    yield ContainerMetrics(pod_name=pod_name, container_name=container_name,
+      uptime_metric_id=uptime_metric_id,
+      cpu_usage_metric_id=cpu_usage_metric_id,
+      cpu_limit_metric_id=cpu_limit_metric_id)
+
+
+def get_bucket(client, path, duration, params):
+  """Retrieve most recent bucket with at least two samples.
+
+  """
+  params = params.copy()
+  params["bucketDuration"] = "{}s".format(duration)
+
+  response = client.get(path, params=params)
+
+  if response.data:
+    for i in sorted(response.data, key=operator.itemgetter("end"), reverse=True):
+      bucket = response.data[0]
+      if not (bucket.get("empty", False) or bucket.get("samples", 0) < 2):
+        return bucket
+
+  return None
+
+
+def get_counter_bucket(client, metric_id, duration, params):
+  path = "counters/{}/data".format(idquote(metric_id))
+  return get_bucket(client, path, duration, params)
+
+
+def get_gauge_bucket(client, metric_id, duration, params):
+  path = "gauges/{}/data".format(idquote(metric_id))
+  return get_bucket(client, path, duration, params)
+
+
+def calc_usage(client, server_now, interval, container):
+  """Calculate CPU usage for a given container.
+
+  <https://github.com/openshift/origin-metrics/blob/master/docs/
+  hawkular_metrics.adoc#calculating-percentage-cpu-usage>
+
+  """
+  uptime_bucket = get_counter_bucket(client, container.uptime_metric_id, interval, {
+    "start": str(1000 * int(server_now - interval)),
+    })
+
+  if not uptime_bucket:
+    logging.info("No CPU usage data for pod %s", container.pod_name)
+    return
+
+  params = {
+    "start": uptime_bucket["start"],
+    "end": uptime_bucket["end"],
+    }
+
+  cpu_usage_bucket = \
+      get_counter_bucket(client, container.cpu_usage_metric_id, interval, params)
+
+  if not cpu_usage_bucket:
+    # Not running or no data
+    return
+
+  # The two buckets must cover the same time interval
+  assert uptime_bucket["start"] == cpu_usage_bucket["start"]
+  assert uptime_bucket["end"] == cpu_usage_bucket["end"]
+
+  uptime_diff_ms = uptime_bucket["max"] - uptime_bucket["min"]
+  usage_diff_ns = cpu_usage_bucket["max"] - cpu_usage_bucket["min"]
+
+  if container.container_name:
+    base_name = "{}/{}".format(container.pod_name, container.container_name)
+  else:
+    base_name = container.pod_name
+
+  cpu_usage_name = base_name
+  cpu_limit_name = "{}/limit".format(base_name, container.container_name)
+
+  # Calculate CPU core usage (may be more than 1.0 for multi-CPU systems)
+  core_usage = float(usage_diff_ns) / (uptime_diff_ms * 1000000)
+
+  yield nagiosplugin.Metric(cpu_usage_name, round(100.0 * core_usage),
+      uom="%", min=0, context="cpu-usage")
+
+  limit_bucket = \
+      get_gauge_bucket(client, container.cpu_limit_metric_id, interval, params)
+
+  if limit_bucket and limit_bucket["avg"] > 0:
+    # Calculate percentage of CPU limit
+    limit_usage = round(core_usage * 100000.0 / limit_bucket["avg"])
+
+    yield nagiosplugin.Metric(cpu_limit_name, limit_usage, min=0, uom="%",
+        context="cpu-limit-usage")
+
+
+class CpuUsage(nagiosplugin.Resource):
+  def __init__(self, client, label_filter, interval):
+    self._client = client
+    self._label_filter = label_filter
+    self._interval = interval
+
+  def probe(self):
+    metrics = sorted(select_metrics(self._client, self._label_filter))
+
+    # Hawkular does not support relative timestamps, hence the need for the
+    # server server time
+    # https://issues.jboss.org/browse/HWKMETRICS-358
+    #
+    server_now = self._client.get("status").server_time
+
+    result = []
+
+    for i in metrics:
+      result.extend(calc_usage(self._client, server_now, self._interval, i))
+
+    return result
+
+
+@nagiosplugin.guarded
+def main():
+  parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  vshn_npo.hawkular_client.setup_argument_parser(parser)
+  hawkular_utils.add_label_filter_argument(parser)
+  utils.add_verbose_argument(parser)
+  parser.add_argument("--interval", metavar="WARN", type=int, default=300,
+                      help=("Measurement interval; Hawkular must receive at"
+                            " least two samples in this timeframe for the"
+                            " calculation to be successful"))
+  parser.add_argument("-w", "--warning", metavar="WARN", type=int, default=None,
+                      help="Return warning if CPU usage exceeds WARN percent")
+  parser.add_argument("-c", "--critical", metavar="CRIT", type=int, default=None,
+                      help="Return critical if CPU usage exceeds CRIT percent")
+  parser.add_argument("--limit-warning", metavar="WARN", type=int, default=None,
+                      help=("Return warning if CPU usage is larger than WARN"
+                            " percent of its limit (applies only when limits are"
+                            " set for a pod)"))
+  parser.add_argument("--limit-critical", metavar="CRIT", type=int, default=None,
+                      help="See `--limit-warning`, but return critical.")
+  args = parser.parse_args()
+
+  if args.interval < _MIN_INTERVAL:
+    parser.error("Interval must be at least {} seconds".format(_MIN_INTERVAL))
+
+  utils.setup_basic_logging(args.verbose)
+
+  client = vshn_npo.hawkular_client.make_client(args)
+
+  label_filter = hawkular_utils.LabelFilter(args.selector.dict().items())
+
+  check = nagiosplugin.Check(
+      CpuUsage(client, label_filter, args.interval),
+      nagiosplugin.ScalarContext("cpu-usage", args.warning, args.critical),
+      nagiosplugin.ScalarContext("cpu-limit-usage", args.limit_warning, args.limit_critical),
+      nagiosutils.FullSummary(),
+      )
+  check.main(verbose=args.verbose, timeout=None)
+
+
+if __name__ == "__main__":
+  main()
+
+# vim: set sw=2 sts=2 et :

@@ -1,0 +1,146 @@
+#!/usr/bin/python3
+
+import argparse
+import functools
+import operator
+import sys
+import time
+import nagiosplugin
+
+import vshn_npo.hawkular_client
+from vshn_npo import utils
+
+
+class Timestamp(nagiosplugin.Resource):
+  def __init__(self, client, name, start, now):
+    self._client = client
+    self._name = name
+    self._start = start
+    self._now = now
+
+  def _query(self, start):
+    idquote = vshn_npo.hawkular_client.idquote
+
+    metric_id = "machine/{}/uptime".format(self._name)
+
+    params = {
+        "start": str(int(start * 1000)),
+        }
+
+    response = self._client.get("counters/{}/data".format(idquote(metric_id)),
+                                params=params)
+
+    if response.data:
+      # Get the most recent timestamp
+      try:
+        timestamp = max(i["timestamp"] for i in response.data)
+      except (IndexError, KeyError) as err:
+        raise nagiosplugin.CheckError("Data format not supported: %r" % (data, ))
+
+      if response.server_time is None:
+        # Wrong or no date header from server; use local time
+        server_time = self._now
+      else:
+        # Calculate age relative to time on server
+        server_time = response.server_time
+
+      return (server_time, (timestamp / 1000))
+
+    return None
+
+  def probe(self):
+    if (self._now - self._start) > (1.2 * 70):
+      # Try a smaller query first; the value was likely updated in the last
+      # minute
+      result = self._query(self._now - 70)
+    else:
+      result = None
+
+    if result is None:
+      result = self._query(self._start)
+
+    yield nagiosplugin.Metric("timestamp", result, context="timestamp")
+
+
+def format_timestamp_metric(start, metric, _):
+  if metric.value is None:
+    return "No data since at least {}".format(time.ctime(start))
+
+  (_, timestamp) = metric.value
+
+  return "updated at {}".format(time.ctime(timestamp))
+
+
+class TimestampContext(nagiosplugin.Context):
+  def __init__(self, start, now, warning, critical):
+    fmt_metric = functools.partial(format_timestamp_metric, start)
+
+    super(TimestampContext, self).__init__("timestamp", fmt_metric=fmt_metric)
+
+    self._now = now
+    self._warning = nagiosplugin.Range(warning)
+    self._critical = nagiosplugin.Range(critical)
+
+  def evaluate(self, metric, resource):
+    if metric.value is None:
+      return self.result_cls(nagiosplugin.Critical, metric=metric)
+
+    (server_time, timestamp) = metric.value
+
+    age = server_time - timestamp
+
+    hint = "%0.0f seconds ago" % (age, )
+
+    if not self._critical.match(age):
+      state = nagiosplugin.Critical
+    elif not self._warning.match(age):
+      state = nagiosplugin.Warn
+    else:
+      state = nagiosplugin.Ok
+
+    return self.result_cls(state=state, hint=hint, metric=metric)
+
+
+@nagiosplugin.guarded
+def main():
+  parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+  vshn_npo.hawkular_client.setup_argument_parser(parser)
+  utils.add_verbose_argument(parser)
+  parser.add_argument("-m", "--machine", required=True, help="Machine name")
+  parser.add_argument("-w", "--warning", metavar="WARN", type=int, default=None,
+                      help=("Return warning if machine status is older than"
+                            " WARN seconds"))
+  parser.add_argument("-c", "--critical", metavar="CRIT", type=int, default=None,
+                      help=("Return critical if machine status is older than"
+                            " CRIT seconds"))
+  args = parser.parse_args()
+
+  limits = [i for i in [args.warning, args.critical] if i is not None]
+
+  if not limits:
+    parser.error("--warning and/or --critical are required")
+
+  utils.setup_basic_logging(args.verbose)
+
+  # Retain a notion of the current time to base all calculations on
+  now = int(time.time())
+
+  # Hawkular does not support relative timestamps
+  # https://issues.jboss.org/browse/HWKMETRICS-358
+  #
+  # Account for a small clock difference between machines, too.
+  start = int(now - 60 - max(limits))
+
+  client = vshn_npo.hawkular_client.make_client(args)
+
+  check = nagiosplugin.Check(
+      Timestamp(client, args.machine, start, now),
+      TimestampContext(start, now, args.warning, args.critical),
+      )
+  check.main(verbose=args.verbose, timeout=None)
+
+
+if __name__ == "__main__":
+  main()
+
+# vim: set sw=2 sts=2 et :

@@ -1,0 +1,55 @@
+{% for host in nagios['openshift_cluster'] %}
+define host{
+        use                     openshift-cluster-template
+        host_name               {{ host['name'] }}
+        alias                   {{ host['name'] }}
+        address                 {{ kube_endpoint }}
+        }
+{% endfor %}
+define hostgroup{
+        hostgroup_name  openshift-cluster
+        alias           Openshift Cluster
+        members         {% for host in nagios['openshift_cluster'] %}{% if loop.last %}{{ host['name'] }}{% else %}{{ host['name'] }},{% endif %}{% endfor %}
+        }
+
+{% for host in nagios['openshift_cluster'] %}
+{% for service in host['services'] %}
+define service{
+        use                             generic-service,graphed-service
+        host_name                       {{ host['name'] }}
+        service_description             {{ service['desc'] }}
+        check_command			{{ service['cmd'] }}
+        }
+{% endfor %}
+{% endfor %}
+
+{% for host in nagios['openshift_cluster'] %}
+{% for master in masters %}
+{% for svc in host['masters'] %}
+{% for service in svc['services'] %}
+define service{
+        use                             generic-service,graphed-service
+        host_name                       {{ host['name'] }}
+        service_description             {{ master }} - {{ service['desc'] }}
+	check_command			{{ service['cmd'] }}!{{ master }}
+        }
+{% endfor %}
+{% endfor %}
+{% endfor %}
+{% endfor %}
+
+{% for host in nagios['openshift_cluster'] %}
+{% for worker in workers %}
+{% for svc in host['workers'] %}
+{% for service in svc['services'] %}
+define service{
+        use                             generic-service,graphed-service
+        host_name                       {{ host['name'] }}
+        service_description             {{ worker }} - {{ service['desc'] }}
+	check_command			{{ service['cmd'] }}!{{ worker }}
+        }
+{% endfor %}
+{% endfor %}
+{% endfor %}
+{% endfor %}
+

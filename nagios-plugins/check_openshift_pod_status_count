@@ -118,7 +118,11 @@ class PodStatusCount(nagiosplugin.Resource):
     yield nagiosplugin.Metric("count-total-containers", total_containers, min=0, context="default")
 
     for i in sorted(_STATUS_CATEGORY_NAMES):
-      yield nagiosplugin.Metric("status-{}".format(i), status_counter[i], min=0, context="default")
+      #print(i)
+      if i == 'Error':
+        yield nagiosplugin.Metric("status-{}".format(i), status_counter[i], min=0, context="{}".format(i))
+      else:
+        yield nagiosplugin.Metric("status-{}".format(i), status_counter[i], min=0, context="default")
 
 
 @nagiosplugin.guarded
@@ -126,6 +130,10 @@ def main():
   parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   utils.add_verbose_argument(parser)
   oc_client.add_oc_arguments(parser)
+  parser.add_argument("-w", "--warning", metavar="WARN", type=int, default=2,
+                      help="Return warning if CPU usage exceeds WARN percent")
+  parser.add_argument("-c", "--critical", metavar="CRIT", type=int, default=5,
+                      help="Return critical if CPU usage exceeds CRIT percent")
   args = parser.parse_args()
 
   utils.setup_basic_logging(args.verbose)
@@ -134,6 +142,7 @@ def main():
 
   checks = [
       PodStatusCount(client),
+      nagiosplugin.ScalarContext("Error", args.warning, args.critical),
       nagiosutils.FullSummary(),
       ]
 

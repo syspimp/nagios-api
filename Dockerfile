@@ -9,7 +9,7 @@ EXPOSE 8080
 # VOLUME ["/opt/status.dat", "/opt/nagios.cmd", "/opt/nagios.log"]
 
 RUN apt-get update && \
-    apt-get install python-virtualenv libffi-dev python-dev python-pip python-setuptools openssl libssl-dev -y vim
+    apt-get install python-virtualenv libffi-dev python-dev python-pip python-setuptools openssl libssl-dev -y vim ansible
 RUN cd /opt && \
     virtualenv env && \
     /opt/env/bin/pip install diesel && \
@@ -24,6 +24,7 @@ RUN echo "deb http://ppa.launchpad.net/vshn/icinga/ubuntu xenial main" >> /etc/a
 RUN mv -f /opt/nagios-api/oc /usr/bin/ && \
 		mv -f /opt/nagios-api/nagios-plugins/check_openshift_node_new /usr/lib/nagios/plugins/check_openshift_node && \
 		mv -f /opt/nagios-api/nagios-plugins/check_openshift_pod_status_count /usr/lib/nagios/plugins/ && \
+		mv -f /opt/nagios-api/nagios-plugins/check_openshift_node_resources /usr/lib/nagios/plugins/ && \
 		mv -f /opt/nagios-api/nagios-plugins/utils /usr/lib/nagios-plugins-openshift/utils && \
 		cp -f /opt/nagios-api/objects/* /opt/nagios/etc/objects/ && \
 		cp -f /opt/nagios-api/nagios.cfg /opt/nagios/etc/nagios.cfg && \

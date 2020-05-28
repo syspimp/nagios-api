@@ -1,0 +1,171 @@
+#!/bin/bash
+
+set -e -u -o pipefail
+
+. /usr/lib/nagios-plugins-openshift/utils
+
+readonly default_maxpending=3600
+
+usage() {
+  echo "Usage: $0 -f <path>"
+  echo
+  echo 'Options:'
+  echo ' -f   Config file path'
+  echo ' -c   Maximum number of seconds a claim may remain pending before' \
+    "going critical (default: ${default_maxpending} seconds)"
+}
+
+opt_cfgfile=
+opt_maxpending="$default_maxpending"
+
+while getopts 'hf:c:' opt; do
+  case "$opt" in
+    h)
+      usage
+      exit 0
+      ;;
+    f) opt_cfgfile="$OPTARG" ;;
+    c)
+      validate_integer "$OPTARG"
+      opt_maxpending="$OPTARG"
+      ;;
+    *)
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+shift $((OPTIND - 1))
+
+if [[ -z "$opt_cfgfile" || "$#" -gt 0 ]]; then
+  usage >&2
+  exit 1
+fi
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+
+# Capture stderr in variable and redirect stdout to file
+# shellcheck disable=SC2069
+if ! msg=$(run_oc "$opt_cfgfile" get pvc \
+             --output=json \
+             --all-namespaces=true \
+             2>&1 >"$tmpdir/data.json"); then
+  echo "$msg"
+  exit "$state_critical"
+fi
+
+jq -r '.items[] |
+  @sh " \\
+    name=\(.metadata.namespace + "/" + .metadata.name) \\
+    creation=\(.metadata.creationTimestamp // "") \\
+    phase=\(.status.phase) \\
+    volname=\(.spec.volumeName // "") \\
+    reqstorage=\(.spec.resources.requests.storage // "") \\
+    storageclass=\(.spec.storageClassName // "") \\
+    capacity=\(.status.capacity.storage // "") \\
+  "
+  ' \
+  < "$tmpdir/data.json" > "$tmpdir/parsed.sh"
+
+exit_status="$state_ok"
+output=()
+metrics=()
+lost_claims=()
+pending_claims=()
+found_old=
+now=$(date +%s)
+
+declare -A phase_count=(
+  [bound]=0
+  [pending]=0
+  [lost]=0
+  )
+
+while read line; do
+  eval "$line"
+
+  lc_phase="${phase,,*}"
+
+  let "++phase_count[$lc_phase]"
+
+  info=()
+
+  if [[ -n "$reqstorage" ]]; then
+    info+=( "req size: ${reqstorage}" )
+  fi
+
+  if [[ -n "$storageclass" ]]; then
+    info+=( "class: ${storageclass}" )
+  fi
+
+  if [[ -n "$capacity" ]]; then
+    info+=( "capacity: ${capacity}" )
+  fi
+
+  if [[ -n "$volname" ]]; then
+    info+=( "PV name: ${volname}" )
+  fi
+
+  if [[ -n "$creation" ]]; then
+    info+=( "created ${creation}" )
+  fi
+
+  if [[ -n "${info[*]+${info[*]}}" ]]; then
+    infostr="${name} ($(join_args ', ' "${info[@]}"))"
+  else
+    infostr="$name"
+  fi
+
+  # https://github.com/kubernetes/kubernetes/blob/v1.3.4/pkg/api/v1/types.go#L514
+  case "$lc_phase" in
+    bound) ;;
+
+    pending)
+      pending_claims+=( "$infostr" )
+
+      if [[ -n "$creation" && -z "$found_old" ]] && \
+         creation_ts=$(date -d "$creation" +%s) &&
+         (( (creation_ts + opt_maxpending) < now )); then
+        found_old=yes
+      fi
+      ;;
+
+    lost)
+      lost_claims+=( "$infostr" )
+      ;;
+
+    *)
+      output+=( "\"$name\" reports unknown phase \"$phase\"" )
+      exit_status=$(merge_status "$exit_status" "$state_warning")
+      ;;
+  esac
+done < "$tmpdir/parsed.sh"
+
+if [[ -n "${pending_claims[*]+${pending_claims[*]}}" ]]; then
+  output+=( "pending: $(join_args ', ' "${pending_claims[@]}")" )
+  exit_status=$(merge_status "$exit_status" "$state_warning")
+fi
+
+if [[ -n "${lost_claims[*]+${lost_claims[*]}}" ]]; then
+  output+=( "lost: $(join_args ', ' "${lost_claims[@]}")" )
+  exit_status=$(merge_status "$exit_status" "$state_critical")
+fi
+
+if [[ -n "$found_old" ]]; then
+  exit_status="$state_critical"
+fi
+
+if [[ -n "${!phase_count[*]}" ]]; then
+  for phase in "${!phase_count[@]}"; do
+    # http://docs.icinga.org/latest/en/perfdata.html#perfdata-format
+    metrics+=( "'$phase'=${phase_count[$phase]};;;0" )
+  done
+fi
+
+finish "$exit_status" \
+  "$(join_args ', ' ${output[@]+"${output[@]}"})" \
+  "${metrics[*]+${metrics[*]}}"
+
+# vim: set sw=2 sts=2 et :

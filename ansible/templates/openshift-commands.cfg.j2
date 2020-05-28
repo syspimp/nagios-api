@@ -1,0 +1,39 @@
+define command{
+	command_name	check_openshift_pod_count_all_namespaces
+	command_line	/usr/lib/nagios/plugins/check_openshift_pod_count -f /opt/nagios-api/kubeconfig -N
+	}
+
+define command{
+	command_name	check_openshift_pod_count_ansible_tower
+	command_line	/usr/lib/nagios/plugins/check_openshift_pod_count -f /opt/nagios-api/kubeconfig -N -s "app=ansible-tower"
+	}
+
+define command{
+	command_name	check_openshift_pod_count_nagios_namespace
+	command_line	/usr/lib/nagios/plugins/check_openshift_pod_count -f /opt/nagios-api/kubeconfig -n nagios
+	}
+
+define command{
+	command_name	check_openshift_node_list
+	command_line	/usr/lib/nagios/plugins/check_openshift_node_list -f /opt/nagios-api/kubeconfig -- {% for host in masters %}{{ host }} {% endfor %}{% for host in workers %}{% if loop.last %}{{ host }}{% else %}{{ host }}{% endif %}{% endfor %}
+	}
+
+define command{
+	command_name	check_openshift_pod_status_count
+	command_line	/usr/lib/nagios/plugins/check_openshift_pod_status_count --config /opt/nagios-api/kubeconfig
+	}
+
+define command{
+	command_name	check_openshift_pvc_phase
+	command_line	/usr/lib/nagios/plugins/check_openshift_pvc_phase -f /opt/nagios-api/kubeconfig
+	}
+
+define command{
+	command_name	check_openshift_elasticsearch_stats
+	command_line	/usr/lib/nagios/plugins/check_openshift_es_stats --endpoint {{ kube_endpoint }}
+	}
+
+define command{
+	command_name	check_openshift_node_resources
+	command_line	/usr/lib/nagios/plugins/check_openshift_node_resources --config /opt/nagios-api/kubeconfig
+	}

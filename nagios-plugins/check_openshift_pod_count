@@ -1,0 +1,117 @@
+#!/bin/bash
+
+set -e -u -o pipefail
+
+. /usr/lib/nagios-plugins-openshift/utils
+
+default_namespace=default
+
+usage() {
+  echo "Usage: $0 -f <path> [-n <namespace>] [-N] [-s <selector>]"\
+    '[-w <number>] [-c <number>]'
+  echo
+  echo 'Check the number of pods reported as ready (see OpenShift documentation).'
+  echo 'A selector may be used to restrict the pods taken into consideration.'
+  echo
+  echo 'Options:'
+  echo ' -f   Config file path'
+  echo " -n   Namespace (default: \"$default_namespace\")"
+  echo ' -N   All namespaces; namespace is ignored even if specified'
+  echo ' -s   Selector, e.g. "deploymentconfig=foobar"'
+  echo ' -c   Minimum number of running pods'
+  echo ' -w   Emit warning if the number of running pods is less than the given number'
+}
+
+opt_cfgfile=
+opt_namespace=$default_namespace
+opt_allns=
+opt_selector=
+opt_warn=
+opt_crit=
+
+while getopts 'hf:n:Ns:w:c:' opt; do
+  case "$opt" in
+    h)
+      usage
+      exit 0
+      ;;
+    f) opt_cfgfile="$OPTARG" ;;
+    n) opt_namespace="$OPTARG" ;;
+    N) opt_allns=yes ;;
+    s) opt_selector="$OPTARG" ;;
+    w)
+      validate_integer "$OPTARG"
+      opt_warn="$OPTARG"
+      ;;
+    c)
+      validate_integer "$OPTARG"
+      opt_crit="$OPTARG"
+      ;;
+    *)
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+shift $((OPTIND - 1))
+
+if [[ "$#" -gt 0 ]]; then
+  usage >&2
+  exit 1
+fi
+
+if [[ -z "$opt_cfgfile" ]]; then
+  usage >&2
+  exit 1
+fi
+
+tmpfile=$(mktemp)
+trap 'rm -f "$tmpfile"' EXIT
+
+oc_args=(
+  --output=json
+  --selector="$opt_selector"
+  )
+
+if [[ -n "$opt_allns" ]]; then
+  oc_args+=( --all-namespaces )
+else
+  oc_args+=( --namespace="$opt_namespace" )
+fi
+
+# Capture stderr in variable and redirect stdout to file
+# shellcheck disable=SC2069
+if ! msg=$(run_oc "$opt_cfgfile" get pod "${oc_args[@]}" 2>&1 >"$tmpfile"); then
+  echo "$msg"
+  exit "$state_critical"
+fi
+
+count_ready() {
+  # Data structure documentation:
+  # https://godoc.org/k8s.io/kubernetes/pkg/api/v1>
+  jq -r \
+    '[.items[].status |
+      select((.conditions // [])[] | select(.type == "Ready") | .status == "True")
+     ] | length'
+}
+
+count=$(count_ready < "$tmpfile")
+
+if [[ -n "$opt_crit" && "$count" -lt "$opt_crit" ]]; then
+  output="$count pods running, but at least $opt_crit required"
+  exit_status=$state_critical
+elif [[ -n "$opt_warn" && "$count" -lt "$opt_warn" ]]; then
+  output="$count pods running, but at least $opt_warn desired"
+  exit_status=$state_warning
+else
+  output="$count pods running"
+  exit_status=$state_ok
+fi
+
+# http://docs.icinga.org/latest/en/perfdata.html#perfdata-format
+metrics="count=${count};${opt_warn};${opt_crit}"
+
+finish "$exit_status" "$output" "$metrics"
+
+# vim: set sw=2 sts=2 et :
