@@ -25,8 +25,9 @@ RUN mv -f /opt/nagios-api/oc /usr/bin/ && \
 		mv -f /opt/nagios-api/nagios-plugins/check_openshift_node_new /usr/lib/nagios/plugins/check_openshift_node && \
 		mv -f /opt/nagios-api/nagios-plugins/check_openshift_pod_status_count /usr/lib/nagios/plugins/ && \
 		mv -f /opt/nagios-api/nagios-plugins/utils /usr/lib/nagios-plugins-openshift/utils && \
-		mv -f /opt/nagios-api/objects/* /opt/nagios/etc/objects/ && \
-		mv -f /opt/nagios-api/nagios.cfg /opt/nagios/etc/nagios.cfg
-
+		cp -f /opt/nagios-api/objects/* /opt/nagios/etc/objects/ && \
+		cp -f /opt/nagios-api/nagios.cfg /opt/nagios/etc/nagios.cfg && \
+		chown -R nagios.nagios /opt/nagios/etc && \
+		chown -R nagios.nagios /opt/nagios/var
 
 CMD [ "/opt/nagios-api/start.sh" ]
