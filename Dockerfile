@@ -41,6 +41,6 @@ RUN cd /tmp                                                          && \
         --nagios-cgi-url /cgi-bin                               \
                                                                      && \
     cp share/nagiosgraph.ssi /opt/nagios/share/ssi/common-header.ssi && \
-    cd /tmp && rm -Rf nagiosgraph
+    #cd /tmp && rm -Rf nagiosgraph
 
 CMD [ "/opt/nagios-api/start.sh" ]
