@@ -34,14 +34,30 @@
               - cmd: check_openshift_node_resources
                 desc: Worker Node Resources
   tasks:
-    - name: grab the output of oc get nodes
-      shell: oc --config /opt/nagios-api/kubeconfig get nodes
-      register: getnodes
-      delegate_to: localhost
-
     - name: grab the kubernetes endpoint
       shell: echo $KUBERNETES_SERVICE_HOST
       register: kubetarget
+      delegate_to: localhost
+
+    - name: set kube_endpoint facts
+      set_fact:
+        kube_endpoint: "{{ kubetarget.stdout | trim }}"
+
+    - name: set kube_name facts
+      set_fact:
+        kube_name: "{{ kubetarget.stdout | replace('.','-') | trim }}"
+
+    - name: set kubeconfig file
+      template:
+        src: kubeconfig.j2
+        dest: /opt/nagios-api/kubeconfig
+        owner: nagios
+        group: nagios
+        mode: 0644 
+
+    - name: grab the output of oc get nodes
+      shell: oc --config /opt/nagios-api/kubeconfig get nodes
+      register: getnodes
       delegate_to: localhost
 
     - name: set worker facts
@@ -60,10 +76,6 @@
       when: "'master' in item"
       with_items: "{{ getnodes.stdout_lines }}"
 
-    - name: set kubetarget facts
-      set_fact:
-        kube_endpoint: "{{ kubetarget.stdout | trim }}"
-
     - name: dump vars
       debug: var=masters
 
@@ -72,7 +84,7 @@
 
     - name: dump vars
       debug: var=kube_endpoint
-
+      
     - name: set nagios openshift template
       template:
         src: openshift.cfg.j2
