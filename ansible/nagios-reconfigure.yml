@@ -80,8 +80,8 @@
         owner: nagios
         group: nagios
         mode: 0644 
-      notify:
-        - restart nagios
+ #     notify:
+ #       - restart nagios
 
     - name: set nagios openshift commands template
       template:
@@ -90,8 +90,8 @@
         owner: nagios
         group: nagios
         mode: 0644 
-      notify:
-        - restart nagios
+#      notify:
+#        - restart nagios
 
     - name: set templates.cfg template
       template:
@@ -100,8 +100,8 @@
         owner: nagios
         group: nagios
         mode: 0644 
-      notify:
-        - restart nagios
+#      notify:
+#        - restart nagios
 
     - name: set nagios.cfg template
       template:
@@ -110,8 +110,8 @@
         owner: nagios
         group: nagios
         mode: 0644 
-      notify:
-        - restart nagios
+#      notify:
+#        - restart nagios
 
   handlers:
     - name: restart nagios
