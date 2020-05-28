@@ -30,5 +30,17 @@ RUN mv -f /opt/nagios-api/oc /usr/bin/ && \
 		cp -f /opt/nagios-api/nagios.cfg /opt/nagios/etc/nagios.cfg && \
 		chown -R nagios.nagios /opt/nagios/etc && \
 		chown -R nagios.nagios /opt/nagios/var
+RUN cd /tmp                                                          && \
+    git clone https://git.code.sf.net/p/nagiosgraph/git nagiosgraph  && \
+    cd nagiosgraph                                                   && \
+    ./install.pl --install                                      \
+        --prefix /opt/nagiosgraph                               \
+        --nagios-user nagios                            \
+        --www-user nagios                               \
+        --nagios-perfdata-file /opt/nagios/var/perfdata.log  \
+        --nagios-cgi-url /cgi-bin                               \
+                                                                     && \
+    cp share/nagiosgraph.ssi /opt/nagios/share/ssi/common-header.ssi && \
+    cd /tmp && rm -Rf nagiosgraph
 
 CMD [ "/opt/nagios-api/start.sh" ]

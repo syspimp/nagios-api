@@ -10,7 +10,8 @@ define hostgroup{
         hostgroup_name  openshift-cluster
         alias           Openshift Cluster
         members         {% for host in nagios['openshift_cluster'] %}{% if loop.last %}{{ host['name'] }}{% else %}{{ host['name'] }},{% endif %}{% endfor %}
-        }
+ 
+ }
 
 {% for host in nagios['openshift_cluster'] %}
 {% for service in host['services'] %}
