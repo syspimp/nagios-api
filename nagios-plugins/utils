@@ -1,0 +1,204 @@
+#!/bin/bash
+
+readonly state_ok=0
+readonly state_warning=1
+readonly state_critical=2
+readonly state_unknown=3
+
+# Set `oc` location
+# dynamically locate `oc` with which, but if that fails fall back
+# to static location of /usr/bin/oc
+if which oc >> /dev/null 2>&1; then
+  readonly OPENSHIFT_CLIENT_BINARY=$(which oc)
+else
+  readonly OPENSHIFT_CLIENT_BINARY=/usr/bin/oc
+fi
+
+#
+# Print arguments joined by delimiter
+#
+# Arguments:
+# - delim: Delimiter; may have multiple characters
+# - args...: Values
+#
+# Source: https://stackoverflow.com/a/17841619
+#
+join_args() {
+  local delim="$1"; shift
+  if [[ "$#" -gt 0 ]]; then
+    echo -n "$1"; shift
+    if [[ "$#" -gt 0 ]]; then
+      printf "%s" "${@/#/$delim}"
+    fi
+  fi
+}
+
+#
+# Check whether the arguments are integers
+#
+validate_integer() {
+  for i; do
+    if ! [[ "$i" =~ ^-?[0-9]+$ ]]; then
+      echo "\"$i\" not recognized as an integer" >&2
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+#
+# Sort arguments into array variable given as first argument
+#
+# Arguments:
+# - var: Name of output variable
+# - args...: Values
+#
+# Source: https://stackoverflow.com/a/7442583
+#
+array_sort() {
+  local var="$1"; shift
+
+  readarray -t "$var" < <(printf '%s\0' "$@" | LC_ALL=C sort -z | xargs -0n1)
+}
+
+#
+# Copy unique arguments into array variable given as first argument. The input
+# elements must be sorted.
+#
+# Arguments:
+# - var: Name of output variable
+# - args...: Values
+#
+array_uniq() {
+  local var="$1"; shift
+
+  readarray -t "$var" < <(printf '%s\0' "$@" | LC_ALL=C uniq -z | xargs -0n1)
+}
+
+#
+# Subtract matching elements in second array from first array and store
+# the result into array variable given as first argument (var = b - a).
+# The input arrays must be sorted. Elements must not contain newline
+# characters.
+#
+# Arguments:
+# - var: Name of output variable
+# - a: Name of first input array
+# - b: Name of second input array
+#
+# Source: https://unix.stackexchange.com/a/104848
+#
+array_sub() {
+  # Use indirect referencing with array, see <https://stackoverflow.com/a/4582492>
+  local var="$1" a="$2[@]" b="$3[@]"
+
+  readarray -t "$var" < <(comm -13 <(printf '%s\n' ${!a+"${!a}"}) <(printf '%s\n' ${!b+"${!b}"}))
+}
+
+#
+# Compute common elements between two arrays and store the result into array
+# variable given as first argument (var = b & a). The input arrays must be
+# sorted. Elements must not contain newline characters.
+#
+# Arguments:
+# - var: Name of output variable
+# - a: Name of first input array
+# - b: Name of second input array
+#
+array_and() {
+  # Use indirect referencing with array, see <https://stackoverflow.com/a/4582492>
+  local var="$1" a="$2[@]" b="$3[@]"
+
+  readarray -t "$var" < <(comm -12 <(printf '%s\n' ${!a+"${!a}"}) <(printf '%s\n' ${!b+"${!b}"}))
+}
+
+#
+# Merge exit status
+#
+# Warning wins over OK, critical wins over warning
+#
+# Arguments:
+# - Current value
+# - Desired value
+#
+merge_status() {
+  local cur="$1" update="$2"
+
+  if (( cur < update )); then
+    echo "$update"
+  else
+    echo "$cur"
+  fi
+}
+
+run_oc() {
+  local cfgfile="$1"; shift
+
+  # See https://github.com/openshift/origin/issues/9581
+  HOME=/ \
+  "$OPENSHIFT_CLIENT_BINARY" \
+    --config="$cfgfile" \
+    --namespace=default \
+    "$@"
+}
+
+#
+# Print result in Nagios-compatible format and terminate process
+#
+# Arguments:
+# - exit_status: Status code
+# - output: Human-readable output
+# - metrics: Metrics for Nagios-compatible monitoring systems
+#
+finish() {
+  local exit_status="$1"
+  local output="$2"
+  local metrics="$3"
+  local prefix=UNKNOWN
+
+  case "$exit_status" in
+    $state_ok)
+      prefix=OK
+      ;;
+    $state_warning)
+      prefix=WARNING
+      ;;
+    $state_critical)
+      prefix=CRITICAL
+      ;;
+    *)
+      exit_status=$state_unknown
+      ;;
+  esac
+
+  echo "$prefix${output:+ $output}${metrics:+ | $metrics}"
+  exit "$exit_status"
+}
+
+#
+# Determine Kubernetes version
+#
+get_kube_ver() {
+  # oc >= 4 has `oc version -o json` however oc <= 3 does not
+  # so we need to parse stdout to figure out what version is being used
+  oc_ver_out=$(run_oc "$opt_cfgfile" version)
+  if echo "${oc_ver_out}" | grep -q 'kubernetes'; then
+    # OpenShift 3 formatting
+    kube_major_ver=$(echo "${oc_ver_out}" | grep 'kubernetes' | cut -d' ' -f 2 | cut -d'v' -f 2 | cut -d'+' -f 1 | tail -n1 | cut -d'.' -f 1)
+    export kube_major_ver
+    kube_minor_ver=$(echo "${oc_ver_out}" | grep 'kubernetes' | cut -d' ' -f 2 | cut -d'v' -f 2 | cut -d'+' -f 1 | tail -n1 | cut -d'.' -f 2)
+    export kube_minor_ver
+  elif echo "${oc_ver_out}" | grep -q 'Kubernetes Version'; then
+    # OpenShift 4 formatting
+    kube_major_ver=$(echo "${oc_ver_out}" | grep 'Kubernetes' | cut -d' ' -f 3 | cut -d'v' -f 2 | cut -d'+' -f 1 | tail -n1 | cut -d'.' -f 1)
+    export kube_major_ver
+    kube_minor_ver=$(echo "${oc_ver_out}" | grep 'Kubernetes' | cut -d' ' -f 3 | cut -d'v' -f 2 | cut -d'+' -f 1 | tail -n1 | cut -d'.' -f 2)
+    export kube_minor_ver
+  else
+    output+=( "Could not determine Kubernetes version" )
+    exit_status=$(merge_status "$exit_status" "$state_critical")
+  fi
+}
+
+# vim: set sw=2 sts=2 et :

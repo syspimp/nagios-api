@@ -21,6 +21,12 @@ COPY . /opt/nagios-api
 RUN echo "deb http://ppa.launchpad.net/vshn/icinga/ubuntu xenial main" >> /etc/apt/sources.list && \
     apt-get update && \
 		apt-get install -y --allow-unauthenticated nagios-plugins-openshift && \
-    mv /opt/nagios-api/oc /usr/bin/
+    mv /opt/nagios-api/oc /usr/bin/ && \
+		mv /opt/nagios-api/nagios-plugins/check_openshift_node_new /usr/lib/nagios/plugins/check_openshift_node && \
+		mv /opt/nagios-api/nagios-plugins/check_openshift_pod_status_count /usr/lib/nagios/plugins/ && \
+		mv /opt/nagios-api/nagios-plugins/utils /usr/lib/nagios-plugins-openshift/utils && \
+		mv /opt/nagios-api/objects/* /opt/nagios/etc/objects/ && \
+		mv /opt/nagios-api/nagios.cfg /opt/nagios/etc/nagios.cfg
+
 
 CMD [ "/opt/nagios-api/start.sh" ]

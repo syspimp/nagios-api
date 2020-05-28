@@ -1,0 +1,27 @@
+---
+- name: this installs cluster logging in ocp 4.4
+  hosts: all
+  vars:
+    ocp_templates:
+    - elasticsearch-operator-namespace.yaml
+    - clusterlogging-operator-namespace.yaml
+    - elasticsearch-operator-group.yaml
+    - elasticsearch-subscription.yaml
+    - clusterlogging-operator-group.yaml
+    - clusterlogging-subscription.yaml
+    - clusterlogging-instance.yaml
+  tasks:
+  - name: copy the template files over to working directory
+    copy:
+      src: "{{ item }}"
+      dest: "/tmp/{{ item }}"
+    loop: "{{ ocp_templates }}"
+
+  - name: create the objects
+    shell: |
+      oc create -f {{ item }}
+    loop: "{{ ocp_templates }}"
+
+  - name: check the openshift-logging namespace for pods 
+    shell: |
+      oc get pods -n openshift-logging
