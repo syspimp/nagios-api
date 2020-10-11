@@ -197,7 +197,7 @@ class Heartbeat(nagiosplugin.Resource):
 
     query = make_query(query_from, query_to, self._expected_hostcount)
 
-    response = requests.post(self._url, headers=self._headers, json=query,
+    response = requests.post(self._url, headers=self._headers, json=query, verify=False,
                              allow_redirects=False)
     utils.raise_for_elasticsearch_response(response)
 
