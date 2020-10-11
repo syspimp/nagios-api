@@ -4,6 +4,8 @@
   connection: local
   gather_facts: no
   vars:
+    kube_user: kubeadmin
+    kube_pass: N2upb-bSdAA-aITGT-sFby2
     nagios:
       api_url: http://localhost:8080
       openshift_cluster:
@@ -56,7 +58,12 @@
         mode: 0644 
 
     - name: grab the output of oc get nodes
-      shell: oc --config /opt/nagios-api/kubeconfig get nodes
+      shell: oc login {{ kube_endpoint }} -u {{ kube_user }} -p {{ kube_pass }}
+      register: getnodes
+      delegate_to: localhost
+
+    - name: grab the output of oc get nodes
+      shell: oc get nodes
       register: getnodes
       delegate_to: localhost
 
