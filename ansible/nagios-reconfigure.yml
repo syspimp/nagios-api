@@ -4,12 +4,13 @@
   connection: local
   gather_facts: no
   vars:
-    kube_user: kubeadmin
-    kube_pass: N2upb-bSdAA-aITGT-sFby2
+    kube_user: admin
+    kube_pass: n0t1k3t
+    kube_clustername: dataylor
     nagios:
       api_url: http://localhost:8080
       openshift_cluster:
-        - name: taylorlabs-ocp
+        - name: dataylor
           services:
             - cmd: check_openshift_pod_count_all_namespaces
               desc: Pod Count for all Namespaces
