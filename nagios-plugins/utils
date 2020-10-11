@@ -138,7 +138,7 @@ run_oc() {
   # See https://github.com/openshift/origin/issues/9581
   HOME=/ \
   "$OPENSHIFT_CLIENT_BINARY" \
-    --config="$cfgfile" \
+#    --config="$cfgfile" \
     --namespace=default \
     "$@"
 }
