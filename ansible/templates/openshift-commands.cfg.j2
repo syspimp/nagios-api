@@ -36,5 +36,6 @@ define command{
 
 define command{
 	command_name	check_openshift_node_resources
-	command_line	/usr/lib/nagios/plugins/check_openshift_node_resources --config /opt/nagios-api/kubeconfig -n $ARG1$
+	command_line	/usr/lib/nagios/plugins/check_openshift_node_resources -n $ARG1$
+	#command_line	/usr/lib/nagios/plugins/check_openshift_node_resources --config /opt/nagios-api/kubeconfig -n $ARG1$
 	}
