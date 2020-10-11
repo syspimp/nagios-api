@@ -31,7 +31,7 @@ define command{
 
 define command{
 	command_name	check_openshift_elasticsearch_stats
-	command_line	/usr/lib/nagios/plugins/check_openshift_es_stats --endpoint {{ kube_endpoint }}
+	command_line	/usr/lib/nagios/plugins/check_openshift_es_stats --endpoint https://{{ kube_endpoint }}
 	}
 
 define command{
