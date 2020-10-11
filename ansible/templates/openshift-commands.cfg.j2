@@ -36,6 +36,6 @@ define command{
 
 define command{
 	command_name	check_openshift_node_resources
-	command_line	/usr/lib/nagios/plugins/check_openshift_node_resources --config /opt/nagios-api/kubeconfig -n $ARG1$
+	command_line	/usr/lib/nagios/plugins/check_openshift_node_resources -n $ARG1$
 	#command_line	/usr/lib/nagios/plugins/check_openshift_node_resources --insecure-skip-tls-verify=true -u {{ kube_user }} -p {{ kube_pass }} --config /opt/nagios-api/kubeconfig -n $ARG1$
 	}
