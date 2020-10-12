@@ -59,7 +59,7 @@
         mode: 0644 
 
     - name: grab the output of oc get nodes
-      shell: oc login {{ kube_endpoint }} -u {{ kube_user }} -p {{ kube_pass }} --insecure-skip-tls-verify=true
+      shell: oc login {{ kube_endpoint }} -u {{ kube_user }} -p {{ kube_pass }}
       register: getnodes
       delegate_to: localhost
 
