@@ -5,8 +5,8 @@
   gather_facts: no
   vars:
     kube_user: kubeadmin
-    kube_pass: N2upb-bSdAA-aITGT-sFby2
-    kube_clustername: dataylor
+    kube_pass: 38WYj-LZwsN-5eMsT-jSmqI
+    kube_clustername: ups-demo
     nagios:
       api_url: http://localhost:8080
       openshift_cluster:
